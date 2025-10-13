@@ -44,7 +44,7 @@ app.post("/api/proxy-candlestick", async (req, res) => {
 
     // 🚀 Send formatted candles to Supabase Edge Function
     const response = await axios.post(
-      "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candlestick-webhook",
+       "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candles_fractal_metadatav2",
       { candles: formatted },
       {
         headers: {
