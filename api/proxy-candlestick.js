@@ -3,11 +3,7 @@ import axios from "axios";
 
 const app = express();
 
-// Enable JSON parsing with safety limits
-app.use(express.json({ 
-  limit: "4.5mb",
-  type: "application/json"
-}));
+// ⚠️ Do NOT use express.json() — Vercel parses JSON automatically
 
 app.post("/api/proxy-candlestick", async (req, res) => {
   try {
