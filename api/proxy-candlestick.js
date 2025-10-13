@@ -83,51 +83,27 @@ app.post("/proxy-candlestick", async (req, res) => {
       barsCount: candlestickData.bars?.length || 0
     });
 
-    // Forward to Supabase Edge Function
-    try {
-      console.log("🔹 Forwarding to Supabase...");
-      const response = await axios.post(
-        "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candles_fractal_metadatav2",
-        candlestickData,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 8000, // 8 second timeout
-        }
-      );
-
-      const processingTime = Date.now() - startTime;
-      console.log("✅ Supabase response received in", processingTime, "ms");
-      
-      return res.status(200).json({ 
-        success: true, 
-        data: response.data,
-        processed: {
-          symbol: candlestickData.symbol,
-          interval: candlestickData.interval,
-          barsCount: candlestickData.bars?.length || 0
-        },
-        timing: {
-          processingTime: processingTime,
-          timestamp: new Date().toISOString()
-        }
-      });
-    } catch (supabaseError) {
-      const processingTime = Date.now() - startTime;
-      console.error("❌ Supabase error after", processingTime, "ms:", supabaseError.message);
-      
-      return res.status(502).json({ 
-        error: "Supabase service error",
-        code: "SUPABASE_ERROR",
-        details: supabaseError.message,
-        timing: {
-          processingTime: processingTime,
-          timestamp: new Date().toISOString()
-        }
-      });
-    }
+    // TEMPORARY: Bypass Supabase for testing
+    console.log("🔹 Bypassing Supabase call for testing");
+    const processingTime = Date.now() - startTime;
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: "Proxy working - Supabase call bypassed for testing",
+      processed: {
+        symbol: candlestickData.symbol,
+        interval: candlestickData.interval,
+        barsCount: candlestickData.bars?.length || 0
+      },
+      timing: {
+        processingTime: processingTime,
+        timestamp: new Date().toISOString()
+      },
+      debug: {
+        hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        anonKeyLength: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length || 0
+      }
+    });
 
   } catch (error) {
     const processingTime = Date.now() - startTime;
