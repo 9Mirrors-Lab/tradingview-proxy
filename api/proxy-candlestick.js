@@ -116,7 +116,25 @@ app.post("/proxy-candlestick", async (req, res) => {
 
     console.log("🔹 Final Payload Size:", JSON.stringify(candlestickData).length, "bytes");
 
-    // Forward to Supabase with enhanced error handling
+    // TEMPORARY: Bypass Supabase for testing
+    console.log("🔹 Bypassing Supabase call for testing");
+    return res.status(200).json({ 
+      success: true, 
+      data: { message: "Proxy working - Supabase call bypassed for testing" },
+      processed: {
+        symbol: candlestickData.symbol,
+        interval: candlestickData.interval,
+        barsCount: candlestickData.bars?.length || 0
+      },
+      debug: {
+        payloadSize: JSON.stringify(candlestickData).length,
+        hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+    // Forward to Supabase with enhanced error handling (DISABLED FOR TESTING)
+    /*
     try {
       const response = await axios.post(
         "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candlestick-webhook",
@@ -152,6 +170,7 @@ app.post("/proxy-candlestick", async (req, res) => {
         supabaseResponse: supabaseError.response?.data
       });
     }
+    */
 
   } catch (error) {
     console.error("❌ Unexpected Proxy Error:", error.message);
