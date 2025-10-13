@@ -7,34 +7,13 @@ const app = express();
 
 app.post("/api/proxy-candlestick", async (req, res) => {
   try {
-     // 🔍 Handle array-wrapped payloads from TradingView or n8n
-     console.log("🔹 Raw req.body type:", typeof req.body);
-     console.log("🔹 Raw req.body keys:", req.body ? Object.keys(req.body) : 'no body');
-     
-     const incoming = Array.isArray(req.body) ? req.body[0] : req.body;
-     console.log("🔹 Incoming type:", typeof incoming);
-     console.log("🔹 Incoming keys:", incoming ? Object.keys(incoming) : 'no incoming');
-     
-     const body = incoming?.body || incoming; // unwrap nested "body" if present
-     console.log("🔹 Final body keys:", body ? Object.keys(body) : 'no body');
+    // 🔍 Handle array-wrapped payloads from TradingView or n8n
+    const incoming = Array.isArray(req.body) ? req.body[0] : req.body;
+    const body = incoming.body || incoming; // unwrap nested "body" if present
 
-     if (!body) {
-       throw new Error("No valid body found in request");
-     }
-
-    const symbol = body.symbol;
+    const symbol = body.symbol || "UNKNOWN";
     const timeframe = body.interval || "unknown";
     const bars = Array.isArray(body.bars) ? body.bars : [];
-
-    // Safety check for required symbol field
-    if (!symbol) {
-      console.error("❌ No symbol found in body:", body);
-      return res.status(400).json({ 
-        error: "Missing required field: symbol",
-        code: "MISSING_SYMBOL",
-        body: body
-      });
-    }
 
     console.log(
       `📊 Processing ${bars.length} candles for ${symbol} ${timeframe}`
