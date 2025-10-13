@@ -18,6 +18,10 @@ app.post("/api/proxy-candlestick", async (req, res) => {
      const body = incoming?.body || incoming; // unwrap nested "body" if present
      console.log("🔹 Final body keys:", body ? Object.keys(body) : 'no body');
 
+     if (!body) {
+       throw new Error("No valid body found in request");
+     }
+
     const symbol = body.symbol || "UNKNOWN";
     const timeframe = body.interval || "unknown";
     const bars = Array.isArray(body.bars) ? body.bars : [];
