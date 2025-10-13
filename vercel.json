@@ -1,8 +1,17 @@
 {
   "functions": {
     "api/proxy-candlestick.js": {
-      "maxDuration": 30,
-      "memory": 1024
+      "maxDuration": 10,
+      "memory": 512
+    },
+    "api/proxy-candlestick-diagnostic.js": {
+      "maxDuration": 5,
+      "memory": 256
+    },
+    "api/proxy-candlestick-supabase.js": {
+      "maxDuration": 15,
+      "memory": 512
     }
-  }
+  },
+  "regions": ["iad1"]
 }
