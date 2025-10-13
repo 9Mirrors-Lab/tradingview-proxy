@@ -9,9 +9,21 @@ const app = express();
 
 app.post("/api/proxy-candlestick", async (req, res) => {
   try {
-    // ✅ Ensure we can handle both stringified and parsed bodies safely
-    const body =
-      typeof req.body === "object" ? req.body : JSON.parse(req.body);
+     console.log("🔹 Request received");
+     console.log("🔹 Body type:", typeof req.body);
+     console.log("🔹 Body keys:", req.body ? Object.keys(req.body) : 'no body');
+     
+     // ✅ Ensure we can handle both stringified and parsed bodies safely
+     let body;
+     if (req.body === undefined || req.body === null) {
+       throw new Error("No request body received");
+     } else if (typeof req.body === "string") {
+       body = JSON.parse(req.body);
+     } else if (typeof req.body === "object") {
+       body = req.body;
+     } else {
+       throw new Error(`Invalid body type: ${typeof req.body}`);
+     }
 
     const candles = Array.isArray(body.candles)
       ? body.candles
