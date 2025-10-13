@@ -91,7 +91,7 @@ app.post("/proxy-candlestick", async (req, res) => {
         candlestickData,
         {
           headers: {
-            Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
             "Content-Type": "application/json",
           },
           timeout: 8000, // 8 second timeout
