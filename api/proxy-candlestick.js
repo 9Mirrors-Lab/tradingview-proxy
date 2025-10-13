@@ -1,94 +1,114 @@
-// api/proxy-candlestick.js - Vercel-Optimized Version
+import express from "express";
+import axios from "axios";
 
-export const config = {
-  runtime: 'nodejs20.x',
-  maxDuration: 10,
-};
+const app = express();
 
-export default async function handler(req, res) {
-  const startTime = Date.now();
-  
+// ❌ Do NOT call express.json() here — Vercel parses JSON automatically
+
+app.post("/api/proxy-candlestick", async (req, res) => {
   try {
-    console.log("🔹 Function started at:", new Date().toISOString());
+    // --------------------------
+    // 🪵 DEBUG: Inspect raw body
+    // --------------------------
     console.log("🔹 Method:", req.method);
-    console.log("🔹 Headers:", Object.keys(req.headers));
+    console.log("🔹 Raw req.body type:", typeof req.body);
+    console.log(
+      "🔹 Raw req.body keys:",
+      req.body && typeof req.body === "object" ? Object.keys(req.body) : "no body"
+    );
 
-    // Health check
-    if (req.method === 'GET') {
-      return res.status(200).json({ 
-        status: "healthy",
-        timestamp: new Date().toISOString(),
-        config: config
+    // If req.body is undefined, read raw text stream manually
+    let rawBody = req.body;
+    if (!rawBody && req.method === "POST") {
+      const text = await new Promise((resolve) => {
+        let data = "";
+        req.on("data", (chunk) => (data += chunk));
+        req.on("end", () => resolve(data));
       });
+      try {
+        rawBody = JSON.parse(text);
+        console.log("✅ Parsed rawBody manually:", Object.keys(rawBody));
+      } catch {
+        console.log("⚠️ Could not parse rawBody as JSON. Raw snippet:", text.slice(0, 200));
+      }
     }
 
-    // Handle POST requests
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: "Method not allowed" });
+    // --------------------------
+    // 🧩 Normalize structure
+    // --------------------------
+    const incoming = Array.isArray(rawBody) ? rawBody[0] : rawBody;
+    console.log("🔹 Incoming type:", typeof incoming);
+    console.log(
+      "🔹 Incoming keys:",
+      incoming && typeof incoming === "object" ? Object.keys(incoming) : "no incoming"
+    );
+
+    const body = incoming?.body || incoming;
+    console.log(
+      "🔹 Final body keys:",
+      body && typeof body === "object" ? Object.keys(body) : "no body"
+    );
+
+    if (!body) {
+      throw new Error("❌ No valid body payload found in request.");
     }
 
-    // Check environment variables
-    if (!process.env.SUPABASE_ANON_KEY) {
-      throw new Error("SUPABASE_ANON_KEY environment variable is missing");
-    }
+    // --------------------------
+    // 🕹️ Extract candle data
+    // --------------------------
+    const symbol = body.symbol || "UNKNOWN";
+    const timeframe = body.interval || "unknown";
+    const bars = Array.isArray(body.bars) ? body.bars : [];
 
-    // Parse body
-    let payload;
-    try {
-      payload = JSON.parse(req.body);
-    } catch (parseError) {
-      console.warn("⚠️ JSON parse failed:", parseError.message);
-      throw new Error(`Invalid JSON: ${parseError.message}`);
-    }
+    console.log(`📊 Processing ${bars.length} candles for ${symbol} ${timeframe}`);
 
-    // Handle TradingView array format
-    if (Array.isArray(payload) && payload.length > 0) {
-      payload = payload[0].body || payload[0];
-    }
+    const formatted = bars.map((bar, i) => {
+      const tRaw = Number(bar.time);
+      const candle_time =
+        tRaw < 1e12
+          ? new Date(tRaw * 1000).toISOString()
+          : new Date(tRaw).toISOString();
 
-    console.log("🔹 Payload:", JSON.stringify(payload, null, 2));
+      const candle = {
+        symbol,
+        timeframe,
+        candle_time,
+        open: Number(bar.open),
+        high: Number(bar.high),
+        low: Number(bar.low),
+        close: Number(bar.close),
+        volume: Number(bar.volume ?? 0),
+        _processed_at: new Date().toISOString(),
+      };
 
-    // Validate required fields
-    if (!payload.symbol || !payload.interval || !payload.bars) {
-      throw new Error("Missing required fields: symbol, interval, or bars");
-    }
-
-    // Forward to Supabase - CORRECT ENDPOINT
-    const supabaseUrl = "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candlestick-webhook";
-    
-    const response = await fetch(supabaseUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+      console.log(`✅ [${i + 1}/${bars.length}] ${symbol} ${candle_time}`);
+      return candle;
     });
 
-    const responseData = await response.json();
-    const duration = Date.now() - startTime;
+    // --------------------------
+    // 🚀 Forward to Supabase Edge Function
+    // --------------------------
+    const response = await axios.post(
+      "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candles_fractal_metadatav2",
+      { candles: formatted },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-    if (!response.ok) {
-      throw new Error(`Supabase error: ${response.status} - ${responseData.error || 'Unknown error'}`);
-    }
-
-    console.log("✅ Success:", responseData);
-    console.log("✅ Duration:", duration + "ms");
-
-    return res.status(200).json({ 
-      success: true, 
-      data: responseData,
-      duration: duration + "ms"
-    });
-
+    console.log(
+      `✅ Forwarded ${formatted.length} candles to Supabase | Status: ${response.status}`
+    );
+    res.status(200).json({ status: "ok", inserted: formatted.length });
   } catch (error) {
-    const duration = Date.now() - startTime;
-    console.error("❌ Error:", error.message);
-    console.error("❌ Duration:", duration + "ms");
-    
-    return res.status(500).json({ 
-      error: error.message,
-      duration: duration + "ms"
-    });
+    console.error("❌ Proxy Error:", error.message);
+    res
+      .status(500)
+      .json({ error: error.message || "Internal proxy server error" });
   }
-}
+});
+
+export default app;
