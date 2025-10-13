@@ -29,7 +29,10 @@ app.post("/api/proxy-candlestick", async (req, res) => {
         rawBody = JSON.parse(text);
         console.log("✅ Parsed rawBody manually:", Object.keys(rawBody));
       } catch {
-        console.log("⚠️ Could not parse rawBody as JSON. Raw snippet:", text.slice(0, 200));
+        console.log(
+          "⚠️ Could not parse rawBody as JSON. Raw snippet:",
+          text.slice(0, 200)
+        );
       }
     }
 
@@ -88,9 +91,26 @@ app.post("/api/proxy-candlestick", async (req, res) => {
     // --------------------------
     // 🚀 Forward to Supabase Edge Function
     // --------------------------
+    // The Edge Function expects: { symbol, interval, bars: [...] }
+    const payload = {
+      symbol,
+      interval: timeframe,
+      bars: formatted.map((bar) => ({
+        time: new Date(bar.candle_time).getTime(),
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+      })),
+    };
+
+    console.log("🔹 Payload shape for Supabase:", Object.keys(payload));
+    console.log("🔹 bars count:", payload.bars.length);
+
     const response = await axios.post(
       "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candles_fractal_metadatav2",
-      { candles: formatted },
+      payload,
       {
         headers: {
           Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
@@ -102,7 +122,13 @@ app.post("/api/proxy-candlestick", async (req, res) => {
     console.log(
       `✅ Forwarded ${formatted.length} candles to Supabase | Status: ${response.status}`
     );
-    res.status(200).json({ status: "ok", inserted: formatted.length });
+
+    res.status(200).json({
+      status: "ok",
+      symbol,
+      timeframe,
+      inserted: formatted.length,
+    });
   } catch (error) {
     console.error("❌ Proxy Error:", error.message);
     res
