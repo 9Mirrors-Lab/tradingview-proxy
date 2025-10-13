@@ -7,9 +7,16 @@ const app = express();
 
 app.post("/api/proxy-candlestick", async (req, res) => {
   try {
-    // 🔍 Handle array-wrapped payloads from TradingView or n8n
-    const incoming = Array.isArray(req.body) ? req.body[0] : req.body;
-    const body = incoming.body || incoming; // unwrap nested "body" if present
+     // 🔍 Handle array-wrapped payloads from TradingView or n8n
+     console.log("🔹 Raw req.body type:", typeof req.body);
+     console.log("🔹 Raw req.body keys:", req.body ? Object.keys(req.body) : 'no body');
+     
+     const incoming = Array.isArray(req.body) ? req.body[0] : req.body;
+     console.log("🔹 Incoming type:", typeof incoming);
+     console.log("🔹 Incoming keys:", incoming ? Object.keys(incoming) : 'no incoming');
+     
+     const body = incoming?.body || incoming; // unwrap nested "body" if present
+     console.log("🔹 Final body keys:", body ? Object.keys(body) : 'no body');
 
     const symbol = body.symbol || "UNKNOWN";
     const timeframe = body.interval || "unknown";
