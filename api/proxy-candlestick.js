@@ -28,7 +28,7 @@ app.use((req, res, next) => {
   }
 });
 
-app.post("/api/proxy-candlestick", async (req, res) => {
+app.post("/proxy-candlestick", async (req, res) => {
   try {
     // 🔍 Enhanced debugging for body parsing issues
     console.log("🔹 === BODY PARSING DEBUG START ===");
