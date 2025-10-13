@@ -1,3 +1,5 @@
+// api/proxy-candlestick.js
+
 import express from "express";
 import axios from "axios";
 import serverless from "serverless-http";
@@ -5,32 +7,28 @@ import bodyParser from "body-parser";
 
 const app = express();
 
-// --- Vercel-safe body parser ---
-app.use(bodyParser.json({ limit: "1mb", strict: false }));
-app.use(bodyParser.text({ type: "*/*" }));
+// ---- FIX: More tolerant parsing ----
+app.use(bodyParser.text({ type: "*/*", limit: "2mb" }));
 
 app.post("/proxy-candlestick", async (req, res) => {
   try {
-    let payload = req.body;
-
-    // Handle stringified JSON (TradingView sometimes wraps it)
-    if (typeof payload === "string") {
-      try {
-        payload = JSON.parse(payload);
-      } catch (err) {
-        console.warn("⚠️ Could not parse string payload as JSON. Using raw text.");
-      }
+    // TradingView sometimes sends stringified JSON
+    let payload;
+    try {
+      payload = JSON.parse(req.body);
+    } catch {
+      console.warn("⚠️ Payload not JSON, using raw body");
+      payload = req.body;
     }
 
-    // Handle TradingView’s outer array wrapper
+    // Handle TradingView’s array-wrapped format
     if (Array.isArray(payload) && payload.length > 0) {
-      console.log("🔹 Detected TradingView webhook array format");
       payload = payload[0].body || payload[0];
     }
 
     console.log("🔹 Normalized Payload:", JSON.stringify(payload, null, 2));
 
-    // Forward just the useful payload to Supabase
+    // Forward to Supabase
     const response = await axios.post(
       "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candlestick-webhook",
       payload,
@@ -44,9 +42,9 @@ app.post("/proxy-candlestick", async (req, res) => {
     );
 
     console.log("✅ Supabase Response:", response.data);
-    res.status(200).json(response.data);
+    res.status(200).json({ success: true, data: response.data });
   } catch (error) {
-    console.error("❌ Proxy error:", error.message);
+    console.error("❌ Proxy Error:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
