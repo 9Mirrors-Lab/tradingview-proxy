@@ -96,7 +96,7 @@ app.post("/api/proxy-candlestick", async (req, res) => {
       symbol,
       interval: timeframe,
       bars: formatted.map((bar) => ({
-        time: new Date(bar.candle_time).getTime(),
+        time: Math.floor(new Date(bar.candle_time).getTime() / 1000), // Convert to epoch seconds
         open: bar.open,
         high: bar.high,
         low: bar.low,
