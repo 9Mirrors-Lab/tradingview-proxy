@@ -65,28 +65,109 @@ app.post("/api/proxy-candlestick", async (req, res) => {
 
     console.log(`📊 Processing ${bars.length} candles for ${symbol} ${timeframe}`);
 
-    const formatted = bars.map((bar, i) => {
-      const tRaw = Number(bar.time);
-      const candle_time =
-        tRaw < 1e12
-          ? new Date(tRaw * 1000).toISOString()
-          : new Date(tRaw).toISOString();
+    // Helper: convert epoch (ms or s) to epoch seconds
+    function toEpochSeconds(rawTime) {
+      const t = Number(rawTime);
+      if (!Number.isFinite(t)) return null;
 
-      const candle = {
+      // Milliseconds are typically >= 1e12 (13+ digits)
+      // Seconds are typically >= 1e9 (10 digits)
+      if (t >= 1e12) {
+        // milliseconds
+        return Math.floor(t / 1000);
+      } else if (t >= 1e9) {
+        // seconds
+        return Math.floor(t);
+      } else {
+        // clearly invalid/too small
+        return null;
+      }
+    }
+
+    // Helper: produce an ISO-ish eastern time string with DST using Intl
+    function toEasternISOStringFromEpochMs(epochMs) {
+      // Use Intl.DateTimeFormat to get timezone-aware components
+      const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        fractionalSecondDigits: 3,
+        hour12: false,
+      });
+
+      // Format parts and reconstruct ISO-like string
+      const parts = dtf.formatToParts(new Date(epochMs));
+      const map = {};
+      for (const p of parts) {
+        if (p.type !== 'literal') map[p.type] = p.value;
+      }
+
+      // Calculate offset by constructing two dates and measuring difference
+      const utcMs = new Date(epochMs).getTime();
+      const nyDate = new Date(
+        Date.parse(new Date(epochMs).toLocaleString('en-US', { timeZone: 'America/New_York' }))
+      );
+      const tzOffsetMinutes = Math.round((utcMs - nyDate.getTime()) / 60000);
+
+      const sign = tzOffsetMinutes >= 0 ? '+' : '-';
+      const absMinutes = Math.abs(tzOffsetMinutes);
+      const hh = String(Math.floor(absMinutes / 60)).padStart(2, '0');
+      const mm = String(absMinutes % 60).padStart(2, '0');
+      const offset = `${sign}${hh}:${mm}`;
+
+      // Construct ISO-like string from parts
+      const iso = `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}:${map.second}.${map.fractionalSecond || '000'}${offset}`;
+
+      return iso;
+    }
+
+    const formatted = bars.map((bar, i) => {
+      const rawTime = bar.time;
+      const epochSeconds = toEpochSeconds(rawTime);
+
+      if (epochSeconds === null) {
+        console.warn(`⚠️ Bar ${i} has invalid time value: ${rawTime}. Skipping.`);
+        return null; // will filter out later
+      }
+
+      const epochMs = epochSeconds * 1000;
+
+      // Use Intl to compute timezone-aware eastern time (handles DST)
+      let easternTimeIso = null;
+      try {
+        easternTimeIso = toEasternISOStringFromEpochMs(epochMs);
+      } catch (err) {
+        console.warn('⚠️ Failed to compute eastern time via Intl, falling back to fixed -05:00 offset', err);
+        // Fallback: fixed -5 hours (not DST aware)
+        const fallback = new Date(epochMs - 5 * 60 * 60 * 1000).toISOString();
+        easternTimeIso = fallback;
+      }
+
+      // Convert volume to integer
+      const volumeInt = Math.round(Number(bar.volume || 0));
+
+      console.log(`✅ [${i + 1}/${bars.length}] ${symbol} rawTime=${rawTime}, epochSeconds=${epochSeconds}, eastern=${easternTimeIso}, volume=${volumeInt}`);
+
+      return {
         symbol,
         timeframe,
-        candle_time,
+        timestamp_utc: epochSeconds,
+        candle_time: easternTimeIso,
+        eastern_time: easternTimeIso,
         open: Number(bar.open),
         high: Number(bar.high),
         low: Number(bar.low),
         close: Number(bar.close),
-        volume: Number(bar.volume ?? 0),
+        volume: volumeInt,
         _processed_at: new Date().toISOString(),
       };
-
-      console.log(`✅ [${i + 1}/${bars.length}] ${symbol} ${candle_time}`);
-      return candle;
-    });
+    })
+    // Remove any null entries we skipped due to invalid times
+    .filter(Boolean);
 
     // --------------------------
     // 🚀 Forward to Supabase Edge Function
@@ -96,7 +177,9 @@ app.post("/api/proxy-candlestick", async (req, res) => {
       symbol,
       interval: timeframe,
       bars: formatted.map((bar) => ({
-        time: new Date(bar.candle_time).getTime(),
+        time: bar.timestamp_utc,
+        timestamp_utc: bar.timestamp_utc,
+        eastern_time: bar.eastern_time,
         open: bar.open,
         high: bar.high,
         low: bar.low,
