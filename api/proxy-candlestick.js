@@ -66,16 +66,12 @@ app.post("/api/proxy-candlestick", async (req, res) => {
     console.log(`📊 Processing ${bars.length} candles for ${symbol} ${timeframe}`);
 
     const formatted = bars.map((bar, i) => {
-      const tRaw = Number(bar.time);
-      const candle_time =
-        tRaw < 1e12
-          ? new Date(tRaw * 1000).toISOString()
-          : new Date(tRaw).toISOString();
+      console.log(`✅ [${i + 1}/${bars.length}] ${symbol} time=${bar.time}`);
 
-      const candle = {
+      return {
         symbol,
         timeframe,
-        candle_time,
+        time: Number(bar.time),
         open: Number(bar.open),
         high: Number(bar.high),
         low: Number(bar.low),
@@ -83,9 +79,6 @@ app.post("/api/proxy-candlestick", async (req, res) => {
         volume: Number(bar.volume ?? 0),
         _processed_at: new Date().toISOString(),
       };
-
-      console.log(`✅ [${i + 1}/${bars.length}] ${symbol} ${candle_time}`);
-      return candle;
     });
 
     // --------------------------
@@ -96,7 +89,7 @@ app.post("/api/proxy-candlestick", async (req, res) => {
       symbol,
       interval: timeframe,
       bars: formatted.map((bar) => ({
-        time: new Date(bar.candle_time).getTime(),
+        time: bar.time,
         open: bar.open,
         high: bar.high,
         low: bar.low,
