@@ -1,5 +1,13 @@
 {
   "functions": {
+    "api/tradingview-alert.js": {
+      "maxDuration": 10,
+      "memory": 512
+    },
+    "api/proxy-tradingviewalert.js": {
+      "maxDuration": 10,
+      "memory": 512
+    },
     "api/proxy-candlestick.js": {
       "maxDuration": 10,
       "memory": 512
