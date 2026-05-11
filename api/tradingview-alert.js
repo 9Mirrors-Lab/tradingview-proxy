@@ -2,7 +2,7 @@
 // POST inserts one row into public.tradingview_alerts via Supabase REST (service role).
 
 export const config = {
-  runtime: "nodejs22.x",
+  runtime: "nodejs",
   maxDuration: 10,
 };
 
