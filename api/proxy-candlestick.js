@@ -3,67 +3,82 @@ import axios from "axios";
 
 const app = express();
 
-// ❌ Do NOT call express.json() here — Vercel parses JSON automatically
+/** Target edge function used in production ingestion (TradingView proxy → Supabase). */
+const DEFAULT_INGEST_URL =
+  process.env.SUPABASE_CANDLESTICK_INGEST_URL ||
+  "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candles_fractal_metadatav2";
+
+/** When Vercel does not populate req.body (some content-types); also reject-on-error stream. */
+function readRawBodyStream(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += String(chunk);
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
+}
+
+/** Turn req.body / raw text into parsed JSON object or undefined. */
+function coerceJsonPayload(input) {
+  if (input === undefined || input === null || input === "") return undefined;
+  if (Buffer.isBuffer(input)) {
+    try {
+      return JSON.parse(input.toString("utf8"));
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof input === "string") {
+    try {
+      return JSON.parse(input.trim());
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof input === "object") return input;
+  return undefined;
+}
+
+async function readTradingViewPayload(req) {
+  let parsed = coerceJsonPayload(req.body);
+  if (parsed === undefined) {
+    const text = await readRawBodyStream(req);
+    parsed = coerceJsonPayload(text);
+  }
+  return parsed;
+}
 
 app.post("/api/proxy-candlestick", async (req, res) => {
   try {
-    // --------------------------
-    // 🪵 DEBUG: Inspect raw body
-    // --------------------------
-    console.log("🔹 Method:", req.method);
-    console.log("🔹 Raw req.body type:", typeof req.body);
+    console.log("[proxy-candlestick] Method:", req.method);
     console.log(
-      "🔹 Raw req.body keys:",
-      req.body && typeof req.body === "object" ? Object.keys(req.body) : "no body"
+      "[proxy-candlestick] req.body typeof:",
+      req.body === null ? "null" : typeof req.body,
     );
 
-    // If req.body is undefined, read raw text stream manually
-    let rawBody = req.body;
-    if (!rawBody && req.method === "POST") {
-      const text = await new Promise((resolve) => {
-        let data = "";
-        req.on("data", (chunk) => (data += chunk));
-        req.on("end", () => resolve(data));
-      });
-      try {
-        rawBody = JSON.parse(text);
-        console.log("✅ Parsed rawBody manually:", Object.keys(rawBody));
-      } catch {
-        console.log(
-          "⚠️ Could not parse rawBody as JSON. Raw snippet:",
-          text.slice(0, 200)
-        );
-      }
-    }
+    let rawBody = await readTradingViewPayload(req);
 
-    // --------------------------
-    // 🧩 Normalize structure
-    // --------------------------
+    console.log(
+      "[proxy-candlestick] After parse/top-level:",
+      rawBody === null ? "null" : typeof rawBody,
+    );
+
     const incoming = Array.isArray(rawBody) ? rawBody[0] : rawBody;
-    console.log("🔹 Incoming type:", typeof incoming);
-    console.log(
-      "🔹 Incoming keys:",
-      incoming && typeof incoming === "object" ? Object.keys(incoming) : "no incoming"
-    );
-
     const body = incoming?.body || incoming;
-    console.log(
-      "🔹 Final body keys:",
-      body && typeof body === "object" ? Object.keys(body) : "no body"
-    );
 
-    if (!body) {
-      throw new Error("❌ No valid body payload found in request.");
+    if (!body || typeof body !== "object") {
+      throw new Error("No valid body payload found in request.");
     }
 
-    // --------------------------
-    // 🕹️ Extract candle data
-    // --------------------------
     const symbol = body.symbol || "UNKNOWN";
     const timeframe = body.interval || "unknown";
     const bars = Array.isArray(body.bars) ? body.bars : [];
 
-    console.log(`📊 Processing ${bars.length} candles for ${symbol} ${timeframe}`);
+    console.log(
+      `[proxy-candlestick] Processing ${bars.length} candles for ${symbol} ${timeframe}`,
+    );
 
     const formatted = bars.map((bar, i) => {
       const tRaw = Number(bar.time);
@@ -84,14 +99,10 @@ app.post("/api/proxy-candlestick", async (req, res) => {
         _processed_at: new Date().toISOString(),
       };
 
-      console.log(`✅ [${i + 1}/${bars.length}] ${symbol} ${candle_time}`);
+      console.log(`[proxy-candlestick] [${i + 1}/${bars.length}] ${symbol} ${candle_time}`);
       return candle;
     });
 
-    // --------------------------
-    // 🚀 Forward to Supabase Edge Function
-    // --------------------------
-    // The Edge Function expects: { symbol, interval, bars: [...] }
     const payload = {
       symbol,
       interval: timeframe,
@@ -105,23 +116,30 @@ app.post("/api/proxy-candlestick", async (req, res) => {
       })),
     };
 
-    console.log("🔹 Payload shape for Supabase:", Object.keys(payload));
-    console.log("🔹 bars count:", payload.bars.length);
+    if (!process.env.SUPABASE_ANON_KEY) {
+      throw new Error("SUPABASE_ANON_KEY environment variable is missing");
+    }
 
-    const response = await axios.post(
-      "https://mqnhqdtxruwyrinlhgox.supabase.co/functions/v1/candles_fractal_metadatav2",
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    console.log("[proxy-candlestick] Forwarding to:", DEFAULT_INGEST_URL.split("/").slice(-2).join("/"));
 
-    console.log(
-      `✅ Forwarded ${formatted.length} candles to Supabase | Status: ${response.status}`
-    );
+    const response = await axios.post(DEFAULT_INGEST_URL, payload, {
+      headers: {
+        Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      validateStatus: () => true,
+      timeout: 25000,
+    });
+
+    console.log("[proxy-candlestick] Edge status:", response.status);
+
+    if (response.status < 200 || response.status >= 300) {
+      const detail =
+        typeof response.data === "object"
+          ? JSON.stringify(response.data).slice(0, 400)
+          : String(response.data ?? "").slice(0, 400);
+      throw new Error(`Supabase ${response.status}: ${detail}`);
+    }
 
     res.status(200).json({
       status: "ok",
@@ -130,10 +148,9 @@ app.post("/api/proxy-candlestick", async (req, res) => {
       inserted: formatted.length,
     });
   } catch (error) {
-    console.error("❌ Proxy Error:", error.message);
-    res
-      .status(500)
-      .json({ error: error.message || "Internal proxy server error" });
+    const message = error instanceof Error ? error.message : "Internal proxy server error";
+    console.error("[proxy-candlestick] Error:", message);
+    res.status(500).json({ error: message });
   }
 });
 
