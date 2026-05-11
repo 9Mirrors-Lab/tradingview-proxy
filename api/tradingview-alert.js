@@ -90,6 +90,18 @@ function parsedBodyToPayload(body, contentType) {
   return { value: body };
 }
 
+/** When Vercel does not populate req.body (common for text/plain or some clients). Same pattern as proxy-candlestick.js. */
+function readRequestBodyStream(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += String(chunk);
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
+}
+
 export default async function handler(req, res) {
   const startTime = Date.now();
 
@@ -120,10 +132,22 @@ export default async function handler(req, res) {
     }
 
     const contentType = req.headers["content-type"] || "";
-    let nested = parsedBodyToPayload(req.body, contentType);
+    let bodyInput = req.body;
+    if (bodyInput === undefined || bodyInput === null) {
+      try {
+        const rawText = await readRequestBodyStream(req);
+        bodyInput = rawText.length > 0 ? rawText : undefined;
+        console.log("[tradingview-alert] Read body from stream, length:", rawText.length);
+      } catch (streamErr) {
+        console.error("[tradingview-alert] Body stream read failed:", streamErr.message);
+      }
+    }
+
+    let nested = parsedBodyToPayload(bodyInput, contentType);
 
     if (Array.isArray(nested) && nested.length > 0) {
-      nested = nested[0].body != null ? nested[0].body : nested[0];
+      const first = nested[0];
+      nested = first != null && typeof first === "object" && first.body != null ? first.body : first;
     }
 
     const payload =
@@ -163,13 +187,13 @@ export default async function handler(req, res) {
     }
 
     if (!response.ok) {
-      throw new Error(
-        `Supabase error: ${response.status}: ${
-          typeof responseData === "object" && responseData?.message
-            ? responseData.message
-            : responseText.slice(0, 200)
-        }`,
-      );
+      const supabaseHint =
+        responseData &&
+        typeof responseData === "object" &&
+        (responseData.message || responseData.error || responseData.hint || responseData.details)
+          ? String(responseData.message || responseData.error || responseData.hint || responseData.details)
+          : responseText.slice(0, 300);
+      throw new Error(`Supabase error: ${response.status}: ${supabaseHint}`);
     }
 
     const inserted = Array.isArray(responseData) ? responseData[0] : responseData;
@@ -184,11 +208,18 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     const duration = Date.now() - startTime;
-    console.error("[tradingview-alert] Error:", error.message);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[tradingview-alert] Error:", message);
+    if (error instanceof Error && error.stack) {
+      console.error("[tradingview-alert] Stack:", error.stack);
+    }
     console.error("[tradingview-alert] Duration:", duration + "ms");
 
-    return res.status(500).json({
-      error: error.message,
+    const status =
+      message.includes("SUPABASE_SERVICE_ROLE_KEY") ? 503 : message.includes("Supabase error:") ? 502 : 500;
+
+    return res.status(status).json({
+      error: message,
       duration: duration + "ms",
     });
   }
