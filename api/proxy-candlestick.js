@@ -41,6 +41,12 @@ function coerceJsonPayload(input) {
   return undefined;
 }
 
+function supabaseAnonKey() {
+  const k =
+    process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  return typeof k === "string" ? k.trim() : "";
+}
+
 async function readTradingViewPayload(req) {
   let parsed = coerceJsonPayload(req.body);
   if (parsed === undefined) {
@@ -116,15 +122,18 @@ app.post("/api/proxy-candlestick", async (req, res) => {
       })),
     };
 
-    if (!process.env.SUPABASE_ANON_KEY) {
-      throw new Error("SUPABASE_ANON_KEY environment variable is missing");
+    const anonKey = supabaseAnonKey();
+    if (!anonKey) {
+      throw new Error(
+        "Missing Supabase anon key: set SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY on Vercel",
+      );
     }
 
     console.log("[proxy-candlestick] Forwarding to:", DEFAULT_INGEST_URL.split("/").slice(-2).join("/"));
 
     const response = await axios.post(DEFAULT_INGEST_URL, payload, {
       headers: {
-        Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+        Authorization: `Bearer ${anonKey}`,
         "Content-Type": "application/json",
       },
       validateStatus: () => true,
